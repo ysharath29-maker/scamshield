@@ -2,7 +2,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from engine import analyze
@@ -25,14 +24,16 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/sw.js")
-def service_worker():
-    return FileResponse(BASE / "static" / "sw.js", media_type="application/javascript")
+def add_file_route(path, filename, media_type):
+    def handler():
+        return FileResponse(BASE / filename, media_type=media_type)
+    app.add_api_route(path, handler, methods=["GET"], include_in_schema=False)
 
 
-app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
-
-
-@app.get("/")
-def home():
-    return FileResponse(BASE / "static" / "index.html")
+add_file_route("/", "index.html", "text/html")
+for name, kind in [("sw.js", "application/javascript"),
+                   ("manifest.json", "application/manifest+json"),
+                   ("icon-192.png", "image/png"),
+                   ("icon-512.png", "image/png")]:
+    add_file_route("/" + name, name, kind)
+    add_file_route("/static/" + name, name, kind)
