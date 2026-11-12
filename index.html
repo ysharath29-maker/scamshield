@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScamShield: SMS and UPI Scam Checker</title>
+<meta name="theme-color" content="#1a56db">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#1b2430;--muted:#5d6b7c;--border:#dde3ec;--accent:#1a56db;--high:#d92d20;--med:#b45309;--low:#15803d}
+@media(prefers-color-scheme:dark){:root{--bg:#0f141b;--card:#18202b;--text:#e8edf3;--muted:#9aa8b8;--border:#2a3646;--accent:#5b8def;--high:#f97066;--med:#fdb022;--low:#4ade80}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+main{max-width:680px;margin:0 auto;padding:20px 16px 40px}
+h1{margin:8px 0 4px;font-size:1.7rem}
+.sub{color:var(--muted);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
+textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font:inherit;resize:vertical}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px}
+.chip{border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:20px;padding:6px 12px;font-size:.85rem;cursor:pointer}
+#go{width:100%;padding:13px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:1rem;font-weight:600;cursor:pointer}
+#go:disabled{opacity:.6}
+#result{display:none;border-left:6px solid var(--c)}
+#result.HIGH{--c:var(--high)}#result.MEDIUM{--c:var(--med)}#result.LOW{--c:var(--low)}
+.level{font-size:1.25rem;font-weight:700;color:var(--c)}
+.bar{height:10px;background:var(--border);border-radius:6px;overflow:hidden;margin:10px 0 4px}
+.bar>div{height:100%;width:0;background:var(--c);transition:width .4s}
+h2{font-size:1rem;margin:16px 0 6px}
+ul{margin:0;padding-left:20px}
+.muted{color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>🛡️ ScamShield</h1>
+  <p class="sub">Paste an SMS or payment message and check if it is a scam.</p>
+
+  <div class="card">
+    <textarea id="msg" placeholder="Paste the message here..."></textarea>
+    <div class="chips" id="chips"></div>
+    <button id="go">Check message</button>
+  </div>
+
+  <div class="card" id="result">
+    <div class="level" id="level"></div>
+    <div class="bar"><div id="fill"></div></div>
+    <div class="muted" id="score"></div>
+    <h2>Why was it flagged?</h2><ul id="flags"></ul>
+    <p class="muted" id="words"></p>
+    <h2>What should you do?</h2><ul id="advice"></ul>
+  </div>
+
+  <p class="muted">This is a learning project and can make mistakes. Your messages are not saved. Report scams at cybercrime.gov.in or call 1930.</p>
+</main>
+<script>
+const examples = {
+  "Fake bank KYC": "Your Union Bank account is suspended. Verify your Aadhaar now at http://ubi-verify.top or it will be closed.",
+  "Fake prize + fee": "Sir, you have won a free iPhone in our festival lucky draw. Pay Rs 1,100 delivery charge to claim.",
+  "UPI collect request": "You have received a collect request of Rs 2000. Enter UPI PIN to receive money.",
+  "Genuine bank alert": "Rs 899 debited from A/c XX4321 at AMAZON on 12-Nov-26. Avl bal Rs 8,120.",
+  "Genuine delivery": "Your Dominos order is on the way and will arrive in 20 minutes."
+};
+const titles = {HIGH: "🚨 High risk: likely a scam", MEDIUM: "⚠️ Medium risk: verify first", LOW: "✅ Low risk: looks normal"};
+const $ = id => document.getElementById(id);
+
+for (const [name, text] of Object.entries(examples)) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = name;
+  b.onclick = () => { $("msg").value = text; };
+  $("chips").appendChild(b);
+}
+
+function fillList(id, items) {
+  const ul = $(id); ul.replaceChildren();
+  items.forEach(t => { const li = document.createElement("li"); li.textContent = t; ul.appendChild(li); });
+}
+
+function show(r) {
+  const box = $("result");
+  box.className = "card " + r.level;
+  box.style.display = "block";
+  $("level").textContent = titles[r.level];
+  $("fill").style.width = Math.round(r.score * 100) + "%";
+  $("score").textContent = "Scam probability: " + Math.round(r.score * 100) + "%";
+  fillList("flags", r.flags.length ? r.flags : ["No common scam red flags found."]);
+  $("words").textContent = r.words.length ? "Words that pushed the score up: " + r.words.join(", ") : "";
+  fillList("advice", r.advice);
+  box.scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+
+$("go").onclick = async () => {
+  const message = $("msg").value.trim();
+  if (!message) { $("msg").focus(); return; }
+  const btn = $("go");
+  btn.disabled = true; btn.textContent = "Checking... (the first check can take up to a minute)";
+  try {
+    const res = await fetch("/api/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({message})});
+    if (!res.ok) throw new Error("Server error");
+    show(await res.json());
+  } catch (e) {
+    alert("Could not check the message. Please try again.");
+  }
+  btn.disabled = false; btn.textContent = "Check message";
+};
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>
